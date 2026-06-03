@@ -1,0 +1,31 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# ── FastAPI / pytest ───────────────────────────────────────────────────────────
+backend/.env
+backend/test.db
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+backend/alembic/versions/__pycache__/
+
+# ── Next.js ────────────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/

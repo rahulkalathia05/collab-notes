@@ -1,0 +1,117 @@
+from uuid import UUID
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.dependencies import get_current_user, get_db
+from app.models.user import User
+from app.schemas.note import (
+    NoteCreate,
+    NoteListItem,
+    NoteResponse,
+    NoteUpdate,
+    NoteVersionCreate,
+    NoteVersionResponse,
+)
+from app.services.note_service import NoteService
+
+router = APIRouter(prefix="/workspaces/{workspace_id}/notes", tags=["notes"])
+
+
+# ── collection ────────────────────────────────────────────────────────────────
+
+@router.get("/", response_model=list[NoteListItem])
+async def list_notes(
+    workspace_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await NoteService(db).get_all(workspace_id, current_user)
+
+
+@router.post("/", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
+async def create_note(
+    workspace_id: UUID,
+    body: NoteCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await NoteService(db).create(workspace_id, body, current_user)
+
+
+# ── single resource ───────────────────────────────────────────────────────────
+
+@router.get("/{note_id}", response_model=NoteResponse)
+async def get_note(
+    workspace_id: UUID,
+    note_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await NoteService(db).get(workspace_id, note_id, current_user)
+
+
+@router.patch("/{note_id}", response_model=NoteResponse)
+async def update_note(
+    workspace_id: UUID,
+    note_id: UUID,
+    body: NoteUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await NoteService(db).update(workspace_id, note_id, body, current_user)
+
+
+@router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_note(
+    workspace_id: UUID,
+    note_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await NoteService(db).delete(workspace_id, note_id, current_user)
+
+
+@router.post("/{note_id}/pin", response_model=NoteResponse)
+async def pin_note(
+    workspace_id: UUID,
+    note_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await NoteService(db).pin(workspace_id, note_id, current_user)
+
+
+# ── version history ───────────────────────────────────────────────────────────
+
+@router.get("/{note_id}/versions", response_model=list[NoteVersionResponse])
+async def list_versions(
+    workspace_id: UUID,
+    note_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await NoteService(db).list_versions(workspace_id, note_id, current_user)
+
+
+@router.post("/{note_id}/versions", response_model=NoteVersionResponse, status_code=status.HTTP_201_CREATED)
+async def create_version(
+    workspace_id: UUID,
+    note_id: UUID,
+    body: NoteVersionCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await NoteService(db).create_version(workspace_id, note_id, body, current_user)
+
+
+@router.post("/{note_id}/versions/{version_id}/restore", response_model=NoteResponse)
+async def restore_version(
+    workspace_id: UUID,
+    note_id: UUID,
+    version_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await NoteService(db).restore_version(
+        workspace_id, note_id, version_id, current_user
+    )
