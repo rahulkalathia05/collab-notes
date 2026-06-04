@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 from uuid import UUID
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class NoteCreate(BaseModel):
@@ -26,8 +26,19 @@ class NoteUpdate(BaseModel):
         return v.strip() if v else v
 
 
+class UserMini(BaseModel):
+    model_config = {"from_attributes": True}
+    id: UUID
+    name: str
+    avatar_url: str | None = None
+
+
 class NoteVersionCreate(BaseModel):
-    label: str | None = None
+    label: str | None = Field(None, max_length=255)
+
+
+class NoteVersionUpdate(BaseModel):
+    label: str = Field(..., min_length=1, max_length=255)
 
 
 # ── responses ─────────────────────────────────────────────────────────────────
@@ -70,6 +81,8 @@ class NoteVersionResponse(BaseModel):
     id: UUID
     note_id: UUID
     content: dict[str, Any]
+    content_text: str | None
     label: str | None
     snapshot_by: UUID
+    snapshotter: UserMini
     created_at: datetime

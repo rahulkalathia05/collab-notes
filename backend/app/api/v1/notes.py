@@ -11,6 +11,7 @@ from app.schemas.note import (
     NoteUpdate,
     NoteVersionCreate,
     NoteVersionResponse,
+    NoteVersionUpdate,
 )
 from app.services.note_service import NoteService
 
@@ -102,6 +103,42 @@ async def create_version(
     db: AsyncSession = Depends(get_db),
 ):
     return await NoteService(db).create_version(workspace_id, note_id, body, current_user)
+
+
+@router.get("/{note_id}/versions/{version_id}", response_model=NoteVersionResponse)
+async def get_version(
+    workspace_id: UUID,
+    note_id: UUID,
+    version_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await NoteService(db).get_version(workspace_id, note_id, version_id, current_user)
+
+
+@router.patch("/{note_id}/versions/{version_id}", response_model=NoteVersionResponse)
+async def update_version(
+    workspace_id: UUID,
+    note_id: UUID,
+    version_id: UUID,
+    body: NoteVersionUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await NoteService(db).update_version_label(
+        workspace_id, note_id, version_id, body, current_user
+    )
+
+
+@router.delete("/{note_id}/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_version(
+    workspace_id: UUID,
+    note_id: UUID,
+    version_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await NoteService(db).delete_version(workspace_id, note_id, version_id, current_user)
 
 
 @router.post("/{note_id}/versions/{version_id}/restore", response_model=NoteResponse)

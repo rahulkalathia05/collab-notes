@@ -31,6 +31,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { AIPanel } from './AIPanel';
 import { AIWriterPanel } from './AIWriterPanel';
 import { CommentsPanel, type PendingSelectionComment } from './CommentsPanel';
+import { VersionHistoryPanel } from './VersionHistoryPanel';
 import { PresenceBar } from './PresenceBar';
 import { RichEditor } from './RichEditor';
 import { useComments } from '@/hooks/useComments';
@@ -55,6 +56,7 @@ export function NotePage({ workspaceId, noteId }: NotePageProps) {
   const [aiWriterOpen, setAiWriterOpen] = useState(false);
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
   const [pendingSelection, setPendingSelection] = useState<PendingSelectionComment | null>(null);
+  const [historyPanelOpen, setHistoryPanelOpen] = useState(false);
   // Tick every 15 s so "Saved X ago" updates without re-fetching
   const [tick, setTick] = useState(0);
 
@@ -137,16 +139,12 @@ export function NotePage({ workspaceId, noteId }: NotePageProps) {
     }
   };
 
-  const handleSaveVersion = async () => {
-    if (!note) return;
-    try {
-      await flush();
-      await noteService.createVersion(workspaceId, noteId);
-      toast.success('Version saved');
-    } catch {
-      toast.error('Failed to save version');
-    }
-  };
+  const closeAllPanels = useCallback(() => {
+    setAiPanelOpen(false);
+    setAiWriterOpen(false);
+    setCommentsPanelOpen(false);
+    setHistoryPanelOpen(false);
+  }, []);
 
   const getEditorSelection = useCallback((): { text: string; from: number; to: number } | null => {
     const editor = editorRef.current;
@@ -233,7 +231,7 @@ export function NotePage({ workspaceId, noteId }: NotePageProps) {
             variant={aiPanelOpen ? 'default' : 'ghost'}
             size="sm"
             className="h-7 text-xs"
-            onClick={() => { setAiPanelOpen((o) => !o); setAiWriterOpen(false); setCommentsPanelOpen(false); }}
+            onClick={() => { closeAllPanels(); setAiPanelOpen((o) => !o); }}
             title="AI summarization"
           >
             <Sparkles className="w-3.5 h-3.5 mr-1" />
@@ -243,7 +241,7 @@ export function NotePage({ workspaceId, noteId }: NotePageProps) {
             variant={aiWriterOpen ? 'default' : 'ghost'}
             size="sm"
             className="h-7 text-xs"
-            onClick={() => { setAiWriterOpen((o) => !o); setAiPanelOpen(false); setCommentsPanelOpen(false); }}
+            onClick={() => { closeAllPanels(); setAiWriterOpen((o) => !o); }}
             title="AI Writing Assistant"
           >
             <PenLine className="w-3.5 h-3.5 mr-1" />
@@ -253,7 +251,7 @@ export function NotePage({ workspaceId, noteId }: NotePageProps) {
             variant={commentsPanelOpen ? 'default' : 'ghost'}
             size="sm"
             className="h-7 text-xs relative"
-            onClick={() => { setCommentsPanelOpen((o) => !o); setAiPanelOpen(false); setAiWriterOpen(false); }}
+            onClick={() => { closeAllPanels(); setCommentsPanelOpen((o) => !o); }}
             title="Comments"
           >
             <MessageSquare className="w-3.5 h-3.5 mr-1" />
@@ -265,6 +263,16 @@ export function NotePage({ workspaceId, noteId }: NotePageProps) {
             )}
           </Button>
           <Button
+            variant={historyPanelOpen ? 'default' : 'ghost'}
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => { closeAllPanels(); setHistoryPanelOpen((o) => !o); }}
+            title="Version history"
+          >
+            <History className="w-3.5 h-3.5 mr-1" />
+            History
+          </Button>
+          <Button
             variant="ghost"
             size="icon-sm"
             className={`text-muted-foreground ${note.is_pinned ? 'text-foreground' : ''}`}
@@ -272,16 +280,6 @@ export function NotePage({ workspaceId, noteId }: NotePageProps) {
             title={note.is_pinned ? 'Unpin note' : 'Pin note'}
           >
             <Pin className={`w-3.5 h-3.5 ${note.is_pinned ? 'fill-current' : ''}`} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs text-muted-foreground"
-            onClick={handleSaveVersion}
-            title="Save a named version snapshot"
-          >
-            <History className="w-3.5 h-3.5 mr-1" />
-            Save version
           </Button>
           <Button
             variant="ghost"
@@ -392,6 +390,19 @@ export function NotePage({ workspaceId, noteId }: NotePageProps) {
             onClearPending={() => setPendingSelection(null)}
             onJumpToSelection={jumpToSelection}
             onClose={() => { setCommentsPanelOpen(false); setPendingSelection(null); }}
+          />
+        )}
+
+        {/* Version history panel */}
+        {historyPanelOpen && note && (
+          <VersionHistoryPanel
+            noteId={noteId}
+            workspaceId={workspaceId}
+            currentContentText={note.content_text ?? ''}
+            onRestored={(restored) => {
+              setNote((n) => n ? { ...n, ...restored } : n);
+            }}
+            onClose={() => setHistoryPanelOpen(false)}
           />
         )}
       </div>

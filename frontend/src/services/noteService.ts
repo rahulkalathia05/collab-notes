@@ -56,6 +56,28 @@ export const noteService = {
     return res.data;
   },
 
+  getVersion: async (workspaceId: string, noteId: string, versionId: string): Promise<NoteVersion> => {
+    const res = await api.get<NoteVersion>(`${base(workspaceId)}/${noteId}/versions/${versionId}`);
+    return res.data;
+  },
+
+  updateVersionLabel: async (
+    workspaceId: string,
+    noteId: string,
+    versionId: string,
+    label: string,
+  ): Promise<NoteVersion> => {
+    const res = await api.patch<NoteVersion>(
+      `${base(workspaceId)}/${noteId}/versions/${versionId}`,
+      { label },
+    );
+    return res.data;
+  },
+
+  deleteVersion: async (workspaceId: string, noteId: string, versionId: string): Promise<void> => {
+    await api.delete(`${base(workspaceId)}/${noteId}/versions/${versionId}`);
+  },
+
   restoreVersion: async (
     workspaceId: string,
     noteId: string,

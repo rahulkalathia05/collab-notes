@@ -6,7 +6,7 @@ from app.models.note import Note, NoteVersion
 from app.models.user import User
 from app.repositories.note_repository import NoteRepository
 from app.repositories.workspace_repository import WorkspaceRepository
-from app.schemas.note import NoteCreate, NoteUpdate, NoteVersionCreate
+from app.schemas.note import NoteCreate, NoteUpdate, NoteVersionCreate, NoteVersionUpdate
 
 # Roles that may create or modify notes (viewers are read-only)
 _WRITE_ROLES = {"owner", "admin", "editor"}
@@ -85,6 +85,36 @@ class NoteService:
             snapshot_by=user.id,
             label=data.label,
         )
+
+    async def get_version(
+        self, workspace_id: UUID, note_id: UUID, version_id: UUID, user: User
+    ) -> NoteVersion:
+        await self._check_access(workspace_id, user.id)
+        await self._get_or_404(note_id, workspace_id)
+        version = await self.note_repo.get_version(version_id, note_id)
+        if not version:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Version not found")
+        return version
+
+    async def update_version_label(
+        self, workspace_id: UUID, note_id: UUID, version_id: UUID,
+        data: NoteVersionUpdate, user: User,
+    ) -> NoteVersion:
+        await self._check_write(workspace_id, user.id)
+        await self._get_or_404(note_id, workspace_id)
+        version = await self.note_repo.update_version_label(version_id, note_id, data.label)
+        if not version:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Version not found")
+        return version
+
+    async def delete_version(
+        self, workspace_id: UUID, note_id: UUID, version_id: UUID, user: User
+    ) -> None:
+        await self._check_write(workspace_id, user.id)
+        await self._get_or_404(note_id, workspace_id)
+        deleted = await self.note_repo.delete_version(version_id, note_id)
+        if not deleted:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Version not found")
 
     async def restore_version(
         self, workspace_id: UUID, note_id: UUID, version_id: UUID, user: User

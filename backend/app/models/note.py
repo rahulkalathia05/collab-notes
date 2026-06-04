@@ -56,6 +56,7 @@ class NoteVersion(Base):
     )
 
     note = relationship("Note", back_populates="versions", lazy="select")
+    snapshotter = relationship("User", foreign_keys=[snapshot_by], lazy="joined")
 
 
 class Comment(Base):

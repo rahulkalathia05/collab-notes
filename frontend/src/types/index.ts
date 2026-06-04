@@ -61,8 +61,10 @@ export interface NoteVersion {
   id: string;
   note_id: string;
   content: Record<string, unknown>;
+  content_text?: string;
   label?: string;
   snapshot_by: string;
+  snapshotter: Pick<User, 'id' | 'name' | 'avatar_url'>;
   created_at: string;
 }
 
