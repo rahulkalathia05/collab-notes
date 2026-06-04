@@ -65,9 +65,15 @@ class Comment(Base):
     note_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("notes.id", ondelete="CASCADE"), nullable=False
     )
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("comments.id", ondelete="CASCADE"), nullable=True
+    )
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    comment_type: Mapped[str] = mapped_column(String(20), nullable=False, default="note", server_default="note")
     anchor_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    selection_from: Mapped[int | None] = mapped_column(nullable=True)
+    selection_to: Mapped[int | None] = mapped_column(nullable=True)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     resolved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -76,4 +82,12 @@ class Comment(Base):
     )
 
     note = relationship("Note", back_populates="comments", lazy="select")
-    user = relationship("User", foreign_keys=[user_id], lazy="select")
+    user = relationship("User", foreign_keys=[user_id], lazy="joined")
+    parent = relationship("Comment", remote_side="Comment.id", back_populates="replies", lazy="select")
+    replies = relationship(
+        "Comment",
+        back_populates="parent",
+        foreign_keys="Comment.parent_id",
+        order_by="Comment.created_at",
+        lazy="selectin",
+    )

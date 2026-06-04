@@ -67,22 +67,18 @@ export interface NoteVersion {
 export interface Comment {
   id: string;
   note_id: string;
+  parent_id?: string;
   user: User;
   content: string;
+  comment_type: 'note' | 'selection';
+  selection_from?: number;
+  selection_to?: number;
   anchor_text?: string;
   resolved: boolean;
   resolved_by?: string;
   created_at: string;
   updated_at: string;
-  replies: CommentReply[];
-}
-
-export interface CommentReply {
-  id: string;
-  comment_id: string;
-  user: User;
-  content: string;
-  created_at: string;
+  replies: Comment[];
 }
 
 export interface NoteShare {
@@ -111,7 +107,27 @@ export interface SearchResult {
   headline?: string;
 }
 
-export type PresenceUser = Pick<User, 'id' | 'name' | 'avatar_url'> & {
+export type UserStatus = 'viewing' | 'editing';
+
+export interface PresenceUser {
+  id: string;
+  name: string;
   color: string;
-  cursor?: { anchor: number; head: number };
-};
+  clientId: number;
+  status: UserStatus;
+}
+
+/** Awareness state carried inside every `awareness` WebSocket message. */
+export interface AwarenessState {
+  user?: {
+    id: string;
+    name: string;
+    color: string;
+  };
+  status?: UserStatus;
+  /**
+   * Yjs relative position set by CollaborationCursor — treated as an opaque
+   * blob by our code and decoded by TipTap's extension on the receiver side.
+   */
+  cursor?: Record<string, unknown> | null;
+}

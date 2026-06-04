@@ -128,3 +128,159 @@
     @apply font-sans;
   }
 }
+
+/* ── TipTap rich editor prose styles ──────────────────────────────────────── */
+
+.rich-editor .ProseMirror {
+  @apply outline-none min-h-64 px-0 py-0;
+
+  /* Vertical rhythm */
+  > * + * { @apply mt-4; }
+
+  /* Headings */
+  h1 { @apply text-3xl font-bold leading-tight mt-8 mb-2; }
+  h2 { @apply text-2xl font-semibold leading-snug mt-7 mb-2; }
+  h3 { @apply text-xl font-medium leading-snug mt-6 mb-1; }
+
+  /* Body */
+  p { @apply leading-relaxed; }
+  strong { @apply font-semibold; }
+  em { @apply italic; }
+  s { @apply line-through; }
+
+  /* Lists */
+  ul { @apply list-disc pl-6 space-y-1; }
+  ol { @apply list-decimal pl-6 space-y-1; }
+  li > p { @apply m-0; }
+  li > ul,
+  li > ol { @apply mt-1; }
+
+  /* Blockquote */
+  blockquote {
+    @apply border-l-4 border-border pl-4 text-muted-foreground italic my-4;
+    > * + * { @apply mt-2; }
+  }
+
+  /* Inline code */
+  code:not(pre code) {
+    @apply bg-muted text-foreground text-[0.875em] font-mono
+           px-1.5 py-0.5 rounded-sm;
+  }
+
+  /* Fenced code block */
+  pre {
+    @apply bg-muted rounded-lg p-4 overflow-x-auto my-4;
+
+    code {
+      @apply bg-transparent p-0 text-sm font-mono text-foreground;
+    }
+  }
+
+  /* Links */
+  a.editor-link {
+    @apply text-primary underline underline-offset-2
+           decoration-primary/40 hover:decoration-primary
+           transition-colors cursor-pointer;
+  }
+
+  /* Horizontal rule */
+  hr {
+    @apply border-none border-t border-border my-6;
+  }
+
+  /* Placeholder — rendered by Placeholder extension */
+  p.is-editor-empty:first-child::before {
+    @apply text-muted-foreground/40 pointer-events-none;
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+  }
+}
+
+/* ── Syntax highlighting (lowlight / highlight.js tokens) ─────────────────── */
+
+.rich-editor pre code {
+  .hljs-comment,
+  .hljs-quote       { @apply text-muted-foreground; }
+
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-built_in,
+  .hljs-name,
+  .hljs-tag         { @apply text-blue-500 dark:text-blue-400; }
+
+  .hljs-string,
+  .hljs-title,
+  .hljs-section,
+  .hljs-attribute,
+  .hljs-literal,
+  .hljs-template-tag,
+  .hljs-template-variable,
+  .hljs-type        { @apply text-green-600 dark:text-green-400; }
+
+  .hljs-number,
+  .hljs-regexp,
+  .hljs-variable,
+  .hljs-params,
+  .hljs-meta        { @apply text-orange-500 dark:text-orange-400; }
+
+  .hljs-function,
+  .hljs-class       { @apply text-purple-500 dark:text-purple-400; }
+
+  .hljs-deletion    { @apply text-destructive; }
+  .hljs-addition    { @apply text-green-600 dark:text-green-400; }
+}
+
+/* ── Collaborative cursor decorations ────────────────────────────────────────
+ *
+ * CollaborationCursor renders two DOM elements per remote user:
+ *   .collab-cursor__caret   — the blinking vertical line at cursor position
+ *   .collab-cursor__label   — the floating name label above the caret
+ *
+ * Dynamic colors are set via --cursor-color CSS custom property, which the
+ * render() function writes as an inline style. This lets a single rule style
+ * all cursors while each user keeps their distinct colour.
+ */
+
+.collab-cursor__caret {
+  /* Vertical cursor line */
+  border-left: 2px solid var(--cursor-color, #888);
+  border-right: 0;
+  margin-left: -1px;
+  margin-right: -1px;
+  position: relative;
+  word-break: normal;
+  pointer-events: none;
+}
+
+.collab-cursor__label {
+  /* Floating name badge above the caret */
+  position: absolute;
+  top: -1.45em;
+  left: -1px;
+  background-color: var(--cursor-color, #888);
+  border-radius: 3px 3px 3px 0;
+  color: white;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  padding: 1px 6px;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+  z-index: 20;
+  /* Appear animation — resets each time the cursor element is recreated */
+  animation: cursor-label-in 0.12s ease;
+}
+
+@keyframes cursor-label-in {
+  from { opacity: 0; transform: translateY(-3px) scale(0.9); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);   }
+}
+
+.collab-cursor__selection {
+  /* Text selection highlight for remote users */
+  background-color: color-mix(in srgb, var(--cursor-color, #888) 25%, transparent);
+  border-radius: 1px;
+}
