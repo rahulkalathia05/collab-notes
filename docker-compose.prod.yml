@@ -1,0 +1,29 @@
+# Production overrides — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Changes from dev:
+#   backend  — production stage (source COPYed in, 2 workers, no --reload)
+#   frontend — runner stage    (standalone Next.js build, node server.js)
+#   No source bind mounts (immutable images)
+#   Non-standard host ports removed (use a reverse proxy in production)
+
+services:
+  postgres:
+    ports: []     # don't expose DB port externally in production
+
+  redis:
+    ports: []     # don't expose Redis port externally in production
+
+  backend:
+    build:
+      target: production
+    environment:
+      DEBUG: "false"
+    volumes: []   # no bind mount — source is baked into the image
+    restart: always
+
+  frontend:
+    build:
+      target: runner
+    volumes: []   # no bind mounts — standalone build is self-contained
+    restart: always
