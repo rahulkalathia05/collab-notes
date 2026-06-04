@@ -16,6 +16,8 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.cache import CacheClient
+from app.cache.keys import search_key
 from app.core.config import settings
 from app.models.user import User
 from app.repositories.search_repository import SearchRepository
@@ -34,6 +36,7 @@ class SearchService:
         self.db = db
         self.fts = SearchRepository(db)
         self.vec = SemanticSearchRepository(db)
+        self.cache = CacheClient()
 
     async def search(
         self,
@@ -56,6 +59,14 @@ class SearchService:
         # Fall back to keyword if semantic is unavailable
         if mode in ("semantic", "hybrid") and not semantic_available:
             mode = "keyword"
+
+        # Cache keyword searches — semantic / hybrid involve OpenAI API calls
+        # which are already fast and user-specific enough to not warrant caching.
+        if mode == "keyword":
+            ckey = search_key(user.id, q, mode, workspace_id, page, page_size)
+            cached = await self.cache.get_search(ckey)
+            if cached is not None:
+                return SearchResponse.model_validate(cached)
 
         skip = (page - 1) * page_size
 
@@ -97,7 +108,7 @@ class SearchService:
                 paged = merged[skip: skip + page_size]
                 items = [_hybrid_row_to_item(r) for r in paged]
 
-        return SearchResponse(
+        response = SearchResponse(
             query=q,
             mode=mode,
             items=items,
@@ -107,6 +118,11 @@ class SearchService:
             pages=max(1, (total + page_size - 1) // page_size),
             semantic_available=semantic_available,
         )
+
+        if mode == "keyword":
+            await self.cache.set_search(ckey, response.model_dump(mode="json"))
+
+        return response
 
 
 # ── RRF merge ─────────────────────────────────────────────────────────────────
