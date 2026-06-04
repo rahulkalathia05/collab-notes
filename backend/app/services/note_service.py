@@ -1,3 +1,4 @@
+from datetime import timezone
 from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +8,15 @@ from app.models.user import User
 from app.repositories.note_repository import NoteRepository
 from app.repositories.workspace_repository import WorkspaceRepository
 from app.schemas.note import NoteCreate, NoteUpdate, NoteVersionCreate, NoteVersionUpdate
+
+
+def _utc(dt) -> "datetime":
+    from datetime import datetime
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 # Roles that may create or modify notes (viewers are read-only)
 _WRITE_ROLES = {"owner", "admin", "editor"}
@@ -42,11 +52,29 @@ class NoteService:
         await self._check_write(workspace_id, user.id)
         note = await self._get_or_404(note_id, workspace_id)
 
-        # Explicit assignment — clear about what fields PATCH can touch
+        # ── Optimistic concurrency check ──────────────────────────────────────
+        # Allow 2-second tolerance for network RTT and clock skew.
+        if data.expected_updated_at is not None:
+            diff = abs((_utc(note.updated_at) - _utc(data.expected_updated_at)).total_seconds())
+            if diff > 2.0:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "conflict",
+                        "message": "Note was modified by another session",
+                        "server_updated_at": note.updated_at.isoformat(),
+                    },
+                )
+
+        # ── Apply changes ─────────────────────────────────────────────────────
         if data.title is not None:
             note.title = data.title
         if data.content is not None:
             note.content = data.content
+            # Keep content_text in sync so FTS search_vector and embeddings
+            # reflect the current body (previously this was never updated).
+            from app.services.ai_service import extract_text_from_tiptap
+            note.content_text = extract_text_from_tiptap(note.content) or None
 
         note.updated_by = user.id
         return await self.note_repo.save(note)

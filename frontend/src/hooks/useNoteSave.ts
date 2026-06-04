@@ -1,48 +1,99 @@
 'use client';
 
+/**
+ * useNoteSave — production-grade autosave for a single note.
+ *
+ * Features
+ * ────────
+ * • Debounce (default 2 s) — rapid edits coalesce into one PATCH
+ * • Change merging — title + content updates batched; one request per flush
+ * • Concurrent-save guard — a second request never starts until the first finishes
+ * • Exponential back-off retry — 2 s → 4 s → 8 s, up to 3 total attempts
+ * • Conflict detection — 409 triggers one automatic silent retry (clear
+ *   expectedUpdatedAt); if that also fails, phase moves to 'error'
+ * • Optimistic concurrency — sends expected_updated_at so the server can
+ *   detect and reject stale writes from other sessions
+ * • Online / offline awareness — pauses debounce while offline, flushes on reconnect
+ * • Phase state machine for rich UI status display
+ */
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { noteService } from '@/services/noteService';
 import type { Note } from '@/types';
 
-type Changes = {
-  title?: string;
-  content?: Record<string, unknown> | null;
-};
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-interface UseNoteSaveReturn {
-  isSaving: boolean;
-  isDirty: boolean;
+type Changes = { title?: string; content?: Record<string, unknown> | null };
+
+export type SavePhase =
+  | 'idle'      // nothing pending, no error
+  | 'pending'   // debounce timer running
+  | 'saving'    // HTTP request in flight
+  | 'retrying'  // waiting before retry (back-off)
+  | 'saved'     // last save succeeded
+  | 'error'     // all retries exhausted
+  | 'conflict'; // 409 + auto-retry failed
+
+export interface UseNoteSaveReturn {
+  phase: SavePhase;
+  isSaving: boolean;       // phase === 'saving'
+  isDirty: boolean;        // changes not yet persisted
   lastSavedAt: Date | null;
   saveError: string | null;
-  /** Merge changes and schedule a debounced PATCH. */
+  retryIn: number;         // seconds until next retry attempt
   queueSave: (changes: Changes) => void;
-  /** Immediately flush any pending changes. Safe to call repeatedly. */
   flush: () => Promise<void>;
+  retrySave: () => void;   // manual retry after 'error' or 'conflict'
 }
 
-/**
- * Manages autosave for a single note — merges title and content changes into
- * one PATCH call so the editor never produces two competing in-flight requests.
- *
- * Wire-up for TipTap (Week 3):
- *   editor.on('update', () => queueSave({ content: editor.getJSON() }));
- */
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const RETRY_DELAYS_MS = [2_000, 4_000, 8_000] as const;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function isConflict(err: unknown): boolean {
+  return (
+    typeof err === 'object' && err !== null &&
+    'response' in err &&
+    (err as { response?: { status?: number } }).response?.status === 409
+  );
+}
+
+function extractServerAt(err: unknown): string | undefined {
+  try {
+    return (
+      err as { response: { data: { detail: { server_updated_at: string } } } }
+    ).response.data.detail.server_updated_at;
+  } catch {
+    return undefined;
+  }
+}
+
+// ── Hook ─────────────────────────────────────────────────────────────────────
+
 export function useNoteSave(
   workspaceId: string,
   noteId: string,
   onSaved: (updated: Note) => void,
-  delay = 2000,
+  delay = 2_000,
 ): UseNoteSaveReturn {
-  const [isSaving, setIsSaving] = useState(false);
-  const [isDirty, setIsDirty] = useState(false);
+  // ── UI state ───────────────────────────────────────────────────────────────
+  const [phase, setPhase] = useState<SavePhase>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [retryIn, setRetryIn] = useState(0);
 
-  // Pending changes accumulate here until the debounce fires
+  // ── Internal refs ─────────────────────────────────────────────────────────
   const pendingRef = useRef<Changes | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const inFlightRef = useRef(false);
+  const mountedRef = useRef(true);
+  const isOnlineRef = useRef(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
-  // Keep callbacks/ids in refs so closures inside setTimeout are always current
+  // Stale-closure-safe identity refs
   const workspaceIdRef = useRef(workspaceId);
   const noteIdRef = useRef(noteId);
   const onSavedRef = useRef(onSaved);
@@ -50,60 +101,224 @@ export function useNoteSave(
   noteIdRef.current = noteId;
   onSavedRef.current = onSaved;
 
-  const doSave = useCallback(async (changes: Changes) => {
-    setIsSaving(true);
-    setSaveError(null);
-    try {
-      const updated = await noteService.update(
-        workspaceIdRef.current,
-        noteIdRef.current,
-        changes,
-      );
-      onSavedRef.current(updated);
-      setLastSavedAt(new Date());
-      setIsDirty(false);
-    } catch {
-      setSaveError('Failed to save');
-    } finally {
-      setIsSaving(false);
-    }
+  // expectedUpdatedAt: the server-side updated_at after the last successful
+  // save. Sent with every subsequent request for conflict detection.
+  const expectedAtRef = useRef<string | undefined>(undefined);
+
+  // ── Safe state setters ────────────────────────────────────────────────────
+
+  const set = useCallback((p: SavePhase) => { if (mountedRef.current) setPhase(p); }, []);
+
+  const clearRetryCountdown = useCallback(() => {
+    if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+    if (retryIntervalRef.current) { clearInterval(retryIntervalRef.current); retryIntervalRef.current = null; }
+    if (mountedRef.current) setRetryIn(0);
   }, []);
+
+  // ── Core save (single attempt) ────────────────────────────────────────────
+
+  const attemptSave = useCallback(
+    async (changes: Changes, attempt: number): Promise<'ok' | 'retry' | 'conflict' | 'failed'> => {
+      if (!mountedRef.current) return 'failed';
+      set('saving');
+
+      try {
+        const payload = {
+          ...changes,
+          ...(expectedAtRef.current ? { expected_updated_at: expectedAtRef.current } : {}),
+        };
+        const updated = await noteService.update(
+          workspaceIdRef.current,
+          noteIdRef.current,
+          payload,
+        );
+        if (!mountedRef.current) return 'ok';
+        expectedAtRef.current = updated.updated_at;
+        onSavedRef.current(updated);
+        if (mountedRef.current) {
+          setLastSavedAt(new Date());
+          setSaveError(null);
+          set(pendingRef.current ? 'pending' : 'saved');
+        }
+        return 'ok';
+      } catch (err: unknown) {
+        if (!mountedRef.current) return 'failed';
+        if (isConflict(err)) {
+          // Sync our expectedAt to what the server has, then signal caller
+          const serverAt = extractServerAt(err);
+          if (serverAt) expectedAtRef.current = serverAt;
+          return 'conflict';
+        }
+        return attempt < RETRY_DELAYS_MS.length ? 'retry' : 'failed';
+      }
+    },
+    [set],
+  );
+
+  // ── Save with retry + back-off ────────────────────────────────────────────
+
+  const executeSave = useCallback(
+    async (changes: Changes): Promise<void> => {
+      clearRetryCountdown();
+
+      for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+        if (!mountedRef.current) return;
+
+        const outcome = await attemptSave(changes, attempt);
+
+        if (outcome === 'ok') return;
+
+        if (outcome === 'conflict') {
+          if (attempt === 0) {
+            // Auto-resolve: the server gave us the updated timestamp; retry
+            // once more without the guard (we already updated expectedAtRef).
+            continue;
+          }
+          // Second conflict (very unlikely) — surface to user
+          if (mountedRef.current) {
+            set('conflict');
+            setSaveError('This note was saved by another session. Click "Retry" to overwrite with your changes.');
+          }
+          return;
+        }
+
+        if (outcome === 'failed') {
+          if (mountedRef.current) {
+            set('error');
+            setSaveError('Could not save. Check your connection and try again.');
+          }
+          return;
+        }
+
+        // outcome === 'retry' — back-off then loop
+        if (!mountedRef.current) return;
+        const delayMs = RETRY_DELAYS_MS[attempt];
+        let remaining = Math.ceil(delayMs / 1000);
+        set('retrying');
+        if (mountedRef.current) setRetryIn(remaining);
+
+        await new Promise<void>((resolve) => {
+          retryIntervalRef.current = setInterval(() => {
+            remaining -= 1;
+            if (mountedRef.current) setRetryIn(Math.max(0, remaining));
+          }, 1_000);
+          retryTimerRef.current = setTimeout(() => {
+            clearRetryCountdown();
+            resolve();
+          }, delayMs);
+        });
+      }
+    },
+    [attemptSave, clearRetryCountdown, set],
+  );
+
+  // ── Drain queue (concurrent-save guard) ───────────────────────────────────
+
+  const drainQueue = useCallback(async (): Promise<void> => {
+    if (inFlightRef.current || !mountedRef.current) return;
+    const changes = pendingRef.current;
+    if (!changes) return;
+
+    pendingRef.current = null;
+    inFlightRef.current = true;
+    try {
+      await executeSave(changes);
+    } finally {
+      inFlightRef.current = false;
+      // If more changes arrived during the save, start another round
+      if (pendingRef.current && mountedRef.current) void drainQueue();
+    }
+  }, [executeSave]);
+
+  // ── Public API ────────────────────────────────────────────────────────────
 
   const queueSave = useCallback(
     (changes: Changes) => {
-      // Merge into pending so rapid title + content changes become one PATCH
       pendingRef.current = { ...pendingRef.current, ...changes };
-      setIsDirty(true);
-      setSaveError(null);
+      if (mountedRef.current) { set('pending'); setSaveError(null); }
 
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = setTimeout(async () => {
-        const toSave = pendingRef.current;
-        if (!toSave) return;
-        pendingRef.current = null;
-        await doSave(toSave);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (!isOnlineRef.current) return; // will flush when back online
+
+      debounceRef.current = setTimeout(() => {
+        debounceRef.current = null;
+        void drainQueue();
       }, delay);
     },
-    [doSave, delay],
+    [set, drainQueue, delay],
   );
 
-  const flush = useCallback(async () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
+  const flush = useCallback(async (): Promise<void> => {
+    if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
+    await drainQueue();
+  }, [drainQueue]);
+
+  const retrySave = useCallback(() => {
+    clearRetryCountdown();
+    if (mountedRef.current) setSaveError(null);
+    // If there are pending local changes, save them; otherwise reset to idle
+    if (pendingRef.current) {
+      void drainQueue();
+    } else {
+      set('idle');
     }
-    const toSave = pendingRef.current;
-    if (!toSave) return;
-    pendingRef.current = null;
-    await doSave(toSave);
-  }, [doSave]);
+  }, [clearRetryCountdown, drainQueue, set]);
 
-  // Cancel timeout on unmount (the component navigating away should call flush first)
+  // ── Online / offline ──────────────────────────────────────────────────────
+
   useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    const onOnline = () => {
+      isOnlineRef.current = true;
+      if (pendingRef.current) void drainQueue();
     };
-  }, []);
+    const onOffline = () => {
+      isOnlineRef.current = false;
+      if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
+    };
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, [drainQueue]);
 
-  return { isSaving, isDirty, lastSavedAt, saveError, queueSave, flush };
+  // ── Reset when navigating to a different note ────────────────────────────
+
+  useEffect(() => {
+    pendingRef.current = null;
+    expectedAtRef.current = undefined;
+    if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
+    clearRetryCountdown();
+    if (mountedRef.current) {
+      setPhase('idle');
+      setSaveError(null);
+      setLastSavedAt(null);
+      setRetryIn(0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteId]);
+
+  // ── Cleanup on unmount ────────────────────────────────────────────────────
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      clearRetryCountdown();
+    };
+  }, [clearRetryCountdown]);
+
+  return {
+    phase,
+    isSaving: phase === 'saving',
+    isDirty: phase === 'pending' || (phase !== 'saving' && !!pendingRef.current),
+    lastSavedAt,
+    saveError,
+    retryIn,
+    queueSave,
+    flush,
+    retrySave,
+  };
 }

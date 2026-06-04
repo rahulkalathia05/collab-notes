@@ -25,7 +25,7 @@ export const noteService = {
   update: async (
     workspaceId: string,
     noteId: string,
-    data: { title?: string; content?: Record<string, unknown> | null }
+    data: { title?: string; content?: Record<string, unknown> | null; expected_updated_at?: string }
   ): Promise<Note> => {
     const res = await api.patch<Note>(`${base(workspaceId)}/${noteId}`, data);
     return res.data;

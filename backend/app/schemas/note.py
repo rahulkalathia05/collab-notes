@@ -17,6 +17,9 @@ class NoteCreate(BaseModel):
 class NoteUpdate(BaseModel):
     title: str | None = None
     content: dict[str, Any] | None = None
+    # Optimistic concurrency — client echoes back the updated_at it last saw.
+    # Server returns 409 if the note was modified by another session since then.
+    expected_updated_at: datetime | None = None
 
     @field_validator("title")
     @classmethod

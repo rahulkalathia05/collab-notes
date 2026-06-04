@@ -66,7 +66,7 @@ export function NotePage({ workspaceId, noteId }: NotePageProps) {
 
   const { openCount: commentCount } = useComments(workspaceId, noteId);
 
-  const { isSaving, isDirty, lastSavedAt, saveError, queueSave, flush } =
+  const { phase: savePhase, isSaving, isDirty, lastSavedAt, saveError, retryIn, queueSave, flush, retrySave } =
     useNoteSave(workspaceId, noteId, setNote);
 
   // ── collaborative editor (Yjs + WebSocket) ────────────────────────────────
@@ -217,11 +217,14 @@ export function NotePage({ workspaceId, noteId }: NotePageProps) {
         {/* Save status */}
         <div className="flex-1 flex justify-center">
           <SaveStatus
+            phase={savePhase}
             isSaving={isSaving}
             isDirty={isDirty}
             saveError={saveError}
             lastSavedAt={lastSavedAt}
+            retryIn={retryIn}
             tick={tick}
+            onRetry={retrySave}
           />
         </div>
 
@@ -438,20 +441,30 @@ export function NotePage({ workspaceId, noteId }: NotePageProps) {
 
 // ── SaveStatus ────────────────────────────────────────────────────────────────
 
+import type { SavePhase } from '@/hooks/useNoteSave';
+
 function SaveStatus({
+  phase,
   isSaving,
   isDirty,
   saveError,
   lastSavedAt,
+  retryIn,
   tick,
+  onRetry,
 }: {
+  phase: SavePhase;
   isSaving: boolean;
   isDirty: boolean;
   saveError: string | null;
   lastSavedAt: Date | null;
+  retryIn: number;
   tick: number;
+  onRetry: () => void;
 }) {
-  if (isSaving) {
+  void tick; // forces re-render every 15 s so relative time stays fresh
+
+  if (phase === 'saving') {
     return (
       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Loader2 className="w-3 h-3 animate-spin" />
@@ -459,20 +472,32 @@ function SaveStatus({
       </span>
     );
   }
-  if (saveError) {
+  if (phase === 'retrying') {
     return (
-      <span className="flex items-center gap-1.5 text-xs text-destructive">
-        <AlertCircle className="w-3 h-3" />
-        {saveError}
+      <span className="flex items-center gap-1.5 text-xs text-amber-500">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        Retrying in {retryIn}s…
       </span>
     );
   }
-  if (isDirty) {
+  if (phase === 'error' || phase === 'conflict') {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-destructive">
+        <AlertCircle className="w-3 h-3 shrink-0" />
+        <span className="truncate max-w-48">{saveError ?? 'Save failed'}</span>
+        <button
+          onClick={onRetry}
+          className="underline underline-offset-2 hover:no-underline shrink-0"
+        >
+          Retry
+        </button>
+      </span>
+    );
+  }
+  if (isDirty || phase === 'pending') {
     return <span className="text-xs text-muted-foreground/60">Unsaved changes</span>;
   }
   if (lastSavedAt) {
-    // `tick` is unused but forces a re-render every 15 s
-    void tick;
     return (
       <span className="flex items-center gap-1.5 text-xs text-muted-foreground/50">
         <CheckCircle2 className="w-3 h-3" />
