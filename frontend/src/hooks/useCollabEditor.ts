@@ -28,11 +28,17 @@ class SimpleAwareness {
     this._listeners.get(event)?.forEach((cb) => cb(...args));
   }
 
+  // Required by @tiptap/y-tiptap's yCursorPlugin
+  getStates(): Map<number, AwarenessState> {
+    return this.states;
+  }
+
   setLocalStateField(key: string, value: unknown) {
     this._local = { ...this._local, [key]: value };
     this.states.set(this._clientId, this._local);
-    // 'local' origin — signals that WE changed; callers filter on this
+    // Emit both 'change' (our internal) and 'update' (expected by TipTap cursor extension)
     this.emit('change', { updated: [this._clientId] }, 'local');
+    this.emit('update', { updated: [this._clientId] }, 'local');
   }
 
   applyRemoteState(clientId: number, state: AwarenessState | null) {
@@ -41,8 +47,8 @@ class SimpleAwareness {
     } else {
       this.states.set(clientId, state);
     }
-    // 'remote' origin — signals that a PEER changed; we must NOT re-broadcast
     this.emit('change', { updated: [clientId] }, 'remote');
+    this.emit('update', { updated: [clientId] }, 'remote');
   }
 
   get localClientId() { return this._clientId; }
