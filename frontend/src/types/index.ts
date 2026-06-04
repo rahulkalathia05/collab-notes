@@ -105,24 +105,30 @@ export interface ApiError {
   detail: string;
 }
 
+export type SearchMode = 'keyword' | 'semantic' | 'hybrid';
+
 export interface SearchResultItem {
   note_id: string;
   workspace_id: string;
   workspace_name: string;
   title: string;
-  title_headline: string;    // HTML: matched terms wrapped in <mark>
-  content_headline: string;  // HTML: matched content snippet with <mark>
-  rank: number;
+  title_headline: string;    // FTS: <mark>-wrapped; semantic: plain title
+  content_headline: string;  // FTS: snippet with <mark>; semantic: plain excerpt
+  rank: number;              // FTS rank, cosine similarity, or RRF score
+  similarity: number | null; // cosine similarity (semantic / hybrid only)
+  match_type: SearchMode;
   updated_at: string;
 }
 
 export interface SearchResponse {
   query: string;
+  mode: SearchMode;
   items: SearchResultItem[];
   total: number;
   page: number;
   page_size: number;
   pages: number;
+  semantic_available: boolean;
 }
 
 export type UserStatus = 'viewing' | 'editing';

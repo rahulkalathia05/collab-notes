@@ -1,8 +1,10 @@
+import uuid
 from uuid import UUID
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db
+from app.db.session import AsyncSessionLocal
 from app.models.user import User
 from app.schemas.note import (
     NoteCreate,
@@ -16,6 +18,17 @@ from app.schemas.note import (
 from app.services.note_service import NoteService
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/notes", tags=["notes"])
+
+
+async def _bg_embed(note_id: uuid.UUID) -> None:
+    """Background task: embed a note in its own session after the request commits."""
+    from app.services.embedding_service import EmbeddingService
+    async with AsyncSessionLocal() as session:
+        try:
+            await EmbeddingService(session).embed_note(note_id)
+            await session.commit()
+        except Exception:
+            await session.rollback()
 
 
 # ── collection ────────────────────────────────────────────────────────────────
@@ -33,10 +46,13 @@ async def list_notes(
 async def create_note(
     workspace_id: UUID,
     body: NoteCreate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await NoteService(db).create(workspace_id, body, current_user)
+    note = await NoteService(db).create(workspace_id, body, current_user)
+    background_tasks.add_task(_bg_embed, note.id)
+    return note
 
 
 # ── single resource ───────────────────────────────────────────────────────────
@@ -56,10 +72,15 @@ async def update_note(
     workspace_id: UUID,
     note_id: UUID,
     body: NoteUpdate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await NoteService(db).update(workspace_id, note_id, body, current_user)
+    note = await NoteService(db).update(workspace_id, note_id, body, current_user)
+    # Only re-embed when content actually changed (title or body)
+    if body.title is not None or body.content is not None:
+        background_tasks.add_task(_bg_embed, note.id)
+    return note
 
 
 @router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
