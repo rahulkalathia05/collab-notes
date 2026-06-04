@@ -1,8 +1,9 @@
 'use client';
 
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { FileText, LogOut, Plus } from 'lucide-react';
+import { FileText, LogOut, Plus, Search } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -15,11 +16,34 @@ export function Sidebar() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const handleLogout = async () => {
     await authService.logout();
     router.push('/login');
   };
+
+  const navigate = useCallback(
+    (q: string) => {
+      if (!q.trim()) return;
+      router.push(`/search?q=${encodeURIComponent(q.trim())}`);
+    },
+    [router],
+  );
+
+  // ⌘K / Ctrl+K global shortcut
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   return (
     <aside className="flex flex-col w-60 h-full border-r bg-sidebar border-sidebar-border shrink-0">
@@ -27,6 +51,33 @@ export function Sidebar() {
       <div className="flex items-center gap-2 px-4 h-14 border-b border-sidebar-border shrink-0">
         <FileText className="w-4 h-4 text-sidebar-primary" />
         <span className="font-semibold text-sm text-sidebar-foreground">CollabNotes</span>
+      </div>
+
+      {/* Search bar */}
+      <div className="px-2 py-2 border-b border-sidebar-border shrink-0">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-sidebar-foreground/40 pointer-events-none" />
+          <input
+            ref={searchRef}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                navigate(searchQuery);
+                setSearchQuery('');
+              }
+              if (e.key === 'Escape') {
+                setSearchQuery('');
+                searchRef.current?.blur();
+              }
+            }}
+            placeholder="Search notes…"
+            className="w-full pl-8 pr-10 py-1.5 rounded-md text-xs bg-sidebar-accent/40 border border-sidebar-border text-sidebar-foreground placeholder:text-sidebar-foreground/40 focus:outline-none focus:ring-1 focus:ring-sidebar-ring transition-colors"
+          />
+          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-sidebar-foreground/30 pointer-events-none hidden sm:block">
+            ⌘K
+          </span>
+        </div>
       </div>
 
       {/* Nav */}

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import JSON, String, Text, Boolean, DateTime, ForeignKey, func
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import JSON, String, Text, Boolean, Computed, DateTime, ForeignKey, func
+from sqlalchemy.dialects.postgresql import UUID, JSONB, TSVECTOR
 from sqlalchemy.orm import relationship, mapped_column, Mapped
 from app.models.base import Base, TimestampMixin
 
@@ -26,6 +26,18 @@ class Note(Base, TimestampMixin):
     # string "false" (truthy) instead of the integer 0.
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # Generated stored column — computed by PostgreSQL, updated automatically.
+    # Deferred so it is never included in regular SELECT * queries.
+    search_vector: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "setweight(to_tsvector('english', coalesce(title, '')), 'A') || "
+            "setweight(to_tsvector('english', coalesce(content_text, '')), 'C')",
+            persisted=True,
+        ),
+        deferred=True,
+        nullable=True,
+    )
 
     workspace = relationship("Workspace", back_populates="notes", lazy="select")
     creator = relationship("User", foreign_keys=[created_by], lazy="select")

@@ -105,10 +105,24 @@ export interface ApiError {
   detail: string;
 }
 
-export interface SearchResult {
-  note: Note;
-  rank?: number;
-  headline?: string;
+export interface SearchResultItem {
+  note_id: string;
+  workspace_id: string;
+  workspace_name: string;
+  title: string;
+  title_headline: string;    // HTML: matched terms wrapped in <mark>
+  content_headline: string;  // HTML: matched content snippet with <mark>
+  rank: number;
+  updated_at: string;
+}
+
+export interface SearchResponse {
+  query: string;
+  items: SearchResultItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
 }
 
 export type UserStatus = 'viewing' | 'editing';
