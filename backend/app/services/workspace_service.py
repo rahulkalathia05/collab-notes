@@ -10,6 +10,7 @@ from app.repositories.user_repository import UserRepository
 from app.schemas.workspace import (
     InviteMemberRequest,
     PaginatedWorkspaces,
+    UpdateMemberRoleRequest,
     WorkspaceCreate,
     WorkspaceMemberResponse,
     WorkspaceResponse,
@@ -105,6 +106,13 @@ class WorkspaceService:
 
     # ── members ───────────────────────────────────────────────────────────────
 
+    async def list_members(
+        self, workspace_id: UUID, requester: User
+    ) -> list[WorkspaceMemberResponse]:
+        await self._require_membership(workspace_id, requester.id)
+        members = await self.repo.list_members(workspace_id)
+        return [WorkspaceMemberResponse.model_validate(m) for m in members]
+
     async def invite_member(
         self, workspace_id: UUID, data: InviteMemberRequest, requester: User
     ) -> WorkspaceMemberResponse:
@@ -118,7 +126,58 @@ class WorkspaceService:
             raise HTTPException(status.HTTP_409_CONFLICT, "User is already a member")
 
         member = await self.repo.add_member(workspace_id, invitee.id, data.role)
-        return WorkspaceMemberResponse.model_validate(member)
+        # Reload with user joined so the response schema can embed user info
+        members = await self.repo.list_members(workspace_id)
+        fresh = next((m for m in members if m.user_id == invitee.id), None)
+        return WorkspaceMemberResponse.model_validate(fresh or member)
+
+    async def update_member_role(
+        self,
+        workspace_id: UUID,
+        target_user_id: UUID,
+        data: UpdateMemberRoleRequest,
+        requester: User,
+    ) -> WorkspaceMemberResponse:
+        requester_m = await self._require_membership(workspace_id, requester.id, roles=_ADMIN_ROLES)
+
+        target_m = await self.repo.get_membership(workspace_id, target_user_id)
+        if not target_m:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
+
+        if target_m.role == "owner":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Cannot change the workspace owner's role")
+
+        # Admins can only set editor / viewer roles; only owners can grant admin
+        if requester_m.role == "admin" and data.role not in ("editor", "viewer"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Admins can only assign editor or viewer roles")
+
+        updated = await self.repo.update_member_role(workspace_id, target_user_id, data.role)
+        if not updated:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
+
+        members = await self.repo.list_members(workspace_id)
+        fresh = next((m for m in members if m.user_id == target_user_id), updated)
+        return WorkspaceMemberResponse.model_validate(fresh)
+
+    async def revoke_member(
+        self, workspace_id: UUID, target_user_id: UUID, requester: User
+    ) -> None:
+        requester_m = await self._require_membership(workspace_id, requester.id, roles=_ADMIN_ROLES)
+
+        target_m = await self.repo.get_membership(workspace_id, target_user_id)
+        if not target_m:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
+
+        if target_m.role == "owner":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Cannot remove the workspace owner")
+
+        # Admins cannot remove other admins (only owners can)
+        if requester_m.role == "admin" and target_m.role == "admin":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Admins cannot remove other admins")
+
+        removed = await self.repo.remove_member(workspace_id, target_user_id)
+        if not removed:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
 
     # ── private ───────────────────────────────────────────────────────────────
 

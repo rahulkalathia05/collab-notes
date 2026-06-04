@@ -1,7 +1,20 @@
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
+
+# ── embedded user info ────────────────────────────────────────────────────────
+
+class UserMini(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: UUID
+    name: str
+    email: str
+    avatar_url: str | None = None
+
+
+# ── workspace requests ────────────────────────────────────────────────────────
 
 class WorkspaceCreate(BaseModel):
     name: str
@@ -50,7 +63,8 @@ class PaginatedWorkspaces(BaseModel):
 class WorkspaceMemberResponse(BaseModel):
     model_config = {"from_attributes": True}
 
-    user_id: UUID
+    workspace_id: UUID
+    user: UserMini
     role: str
     joined_at: datetime
 
@@ -58,6 +72,17 @@ class WorkspaceMemberResponse(BaseModel):
 class InviteMemberRequest(BaseModel):
     email: str
     role: str = "editor"
+
+    @field_validator("role")
+    @classmethod
+    def valid_role(cls, v: str) -> str:
+        if v not in ("editor", "viewer"):
+            raise ValueError("Role must be editor or viewer")
+        return v
+
+
+class UpdateMemberRoleRequest(BaseModel):
+    role: str = Field(..., description="New role for the member")
 
     @field_validator("role")
     @classmethod

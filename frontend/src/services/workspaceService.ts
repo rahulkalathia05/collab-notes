@@ -46,4 +46,20 @@ export const workspaceService = {
     const res = await api.post<WorkspaceMember>(`/api/v1/workspaces/${id}/members`, data);
     return res.data;
   },
+
+  updateMemberRole: async (
+    workspaceId: string,
+    userId: string,
+    role: WorkspaceMember['role'],
+  ): Promise<WorkspaceMember> => {
+    const res = await api.patch<WorkspaceMember>(
+      `/api/v1/workspaces/${workspaceId}/members/${userId}`,
+      { role },
+    );
+    return res.data;
+  },
+
+  removeMember: async (workspaceId: string, userId: string): Promise<void> => {
+    await api.delete(`/api/v1/workspaces/${workspaceId}/members/${userId}`);
+  },
 };

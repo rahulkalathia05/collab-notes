@@ -7,6 +7,7 @@ from app.models.user import User
 from app.schemas.workspace import (
     InviteMemberRequest,
     PaginatedWorkspaces,
+    UpdateMemberRoleRequest,
     WorkspaceCreate,
     WorkspaceMemberResponse,
     WorkspaceResponse,
@@ -96,6 +97,15 @@ async def delete_workspace(
 
 # ── members ───────────────────────────────────────────────────────────────────
 
+@router.get("/{workspace_id}/members", response_model=list[WorkspaceMemberResponse])
+async def list_members(
+    workspace_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await WorkspaceService(db).list_members(workspace_id, current_user)
+
+
 @router.post(
     "/{workspace_id}/members",
     response_model=WorkspaceMemberResponse,
@@ -108,3 +118,26 @@ async def invite_member(
     db: AsyncSession = Depends(get_db),
 ):
     return await WorkspaceService(db).invite_member(workspace_id, body, current_user)
+
+
+@router.patch("/{workspace_id}/members/{user_id}", response_model=WorkspaceMemberResponse)
+async def update_member_role(
+    workspace_id: UUID,
+    user_id: UUID,
+    body: UpdateMemberRoleRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await WorkspaceService(db).update_member_role(
+        workspace_id, user_id, body, current_user
+    )
+
+
+@router.delete("/{workspace_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_member(
+    workspace_id: UUID,
+    user_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await WorkspaceService(db).revoke_member(workspace_id, user_id, current_user)

@@ -40,6 +40,8 @@ export interface WorkspaceMember {
   joined_at: string;
 }
 
+export type MemberRole = 'owner' | 'editor' | 'viewer';
+
 export interface Note {
   id: string;
   workspace_id: string;

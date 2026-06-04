@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Clock, FileText, Pin, Plus, Trash2 } from 'lucide-react';
+import { Clock, FileText, Pin, Plus, Trash2, Users } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { MembersDialog } from './MembersDialog';
 import { noteService } from '@/services/noteService';
 import { workspaceService } from '@/services/workspaceService';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
@@ -28,6 +29,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [membersOpen, setMembersOpen] = useState(false);
 
   useEffect(() => {
     workspaceService.get(workspaceId).then((ws) => {
@@ -85,10 +87,21 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
         title={workspace?.name ?? 'Loading…'}
         description={workspace ? `${notes.length} note${notes.length !== 1 ? 's' : ''}` : undefined}
         actions={
-          <Button size="sm" onClick={handleCreateNote} disabled={creating}>
-            <Plus className="w-3.5 h-3.5" />
-            New Note
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setMembersOpen(true)}
+              title="Manage members"
+            >
+              <Users className="w-3.5 h-3.5 mr-1" />
+              Members
+            </Button>
+            <Button size="sm" onClick={handleCreateNote} disabled={creating}>
+              <Plus className="w-3.5 h-3.5" />
+              New Note
+            </Button>
+          </div>
         }
       />
 
@@ -147,6 +160,16 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
           </div>
         )}
       </div>
+
+      {/* Members / sharing dialog */}
+      {workspace && (
+        <MembersDialog
+          workspaceId={workspaceId}
+          workspaceName={workspace.name}
+          open={membersOpen}
+          onOpenChange={setMembersOpen}
+        />
+      )}
 
       {/* Delete confirmation */}
       <Dialog open={!!deletingId} onOpenChange={(o) => !o && setDeletingId(null)}>

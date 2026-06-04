@@ -1,7 +1,7 @@
 from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager
+from sqlalchemy.orm import contains_eager, joinedload
 
 from app.models.workspace import Workspace, WorkspaceMember
 from app.repositories.base import BaseRepository
@@ -94,6 +94,39 @@ class WorkspaceRepository(BaseRepository[Workspace]):
         self.session.add(member)
         await self.session.flush()
         return member
+
+    async def list_members(self, workspace_id: UUID) -> list[WorkspaceMember]:
+        """Return all members of a workspace with user eagerly loaded."""
+        result = await self.session.execute(
+            select(WorkspaceMember)
+            .where(WorkspaceMember.workspace_id == workspace_id)
+            .options(joinedload(WorkspaceMember.user))
+            .order_by(WorkspaceMember.joined_at.asc())
+        )
+        return list(result.unique().scalars().all())
+
+    async def update_member_role(
+        self, workspace_id: UUID, user_id: UUID, role: str
+    ) -> WorkspaceMember | None:
+        member = await self.session.get(
+            WorkspaceMember, {"workspace_id": workspace_id, "user_id": user_id}
+        )
+        if not member:
+            return None
+        member.role = role
+        await self.session.flush()
+        await self.session.refresh(member)
+        return member
+
+    async def remove_member(self, workspace_id: UUID, user_id: UUID) -> bool:
+        member = await self.session.get(
+            WorkspaceMember, {"workspace_id": workspace_id, "user_id": user_id}
+        )
+        if not member:
+            return False
+        await self.session.delete(member)
+        await self.session.flush()
+        return True
 
     async def unique_slug(self, base: str) -> str:
         slug, i = base, 1
