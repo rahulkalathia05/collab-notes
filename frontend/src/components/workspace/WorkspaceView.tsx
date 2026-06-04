@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Clock, FileText, Pin, Plus, Trash2, Users } from 'lucide-react';
+import { BarChart2, Clock, FileText, Pin, Plus, Trash2, Users } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import {
@@ -97,6 +97,14 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
               <Users className="w-3.5 h-3.5 mr-1" />
               Members
             </Button>
+            <a
+              href={`/workspaces/${workspaceId}/analytics`}
+              className="inline-flex items-center gap-1 h-8 px-3 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="View analytics"
+            >
+              <BarChart2 className="w-3.5 h-3.5" />
+              Analytics
+            </a>
             <Button size="sm" onClick={handleCreateNote} disabled={creating}>
               <Plus className="w-3.5 h-3.5" />
               New Note
