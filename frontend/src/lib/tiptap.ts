@@ -73,7 +73,7 @@ export function createCollabExtensions({
   placeholder = 'Start writing…',
 }: CollabExtensionOptions) {
   return [
-    StarterKit.configure({ codeBlock: false, heading: { levels: [1, 2, 3] } }),
+    StarterKit.configure({ history: false, codeBlock: false, heading: { levels: [1, 2, 3] } }),
 
     Collaboration.configure({ document: ydoc }),
 

@@ -199,7 +199,8 @@ export function useCollabEditor({
 
     ws.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer) {
-        Y.applyUpdate(ydoc, new Uint8Array(event.data));
+        // Pass 'remote' as origin so onDocUpdate skips re-broadcasting this update
+        Y.applyUpdate(ydoc, new Uint8Array(event.data), 'remote');
         return;
       }
       try {
@@ -241,7 +242,8 @@ export function useCollabEditor({
       }
     };
 
-    const onDocUpdate = (update: Uint8Array) => {
+    const onDocUpdate = (update: Uint8Array, origin: unknown) => {
+      if (origin === 'remote') return; // don't echo back updates received from server
       if (ws.readyState === WebSocket.OPEN) ws.send(update);
       else pendingRef.current.push(update);
     };
